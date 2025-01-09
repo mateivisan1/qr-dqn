@@ -13,7 +13,7 @@ class QRDQNAgent:
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
 
         # Quantile fractions (tau_1..tau_N)
-        self.tau = torch.linspace(0.0, 1.0, self.num_quantiles+1)[1:-1]
+        self.tau = torch.linspace(0.0, 1.0, self.num_quantiles)
         self.tau = self.tau.view(1, self.num_quantiles)
 
     def select_action(self, state, epsilon):
