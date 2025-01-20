@@ -1,28 +1,34 @@
-import sys
-import os
-
-# Optionally ensure project root is in sys.path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.join(current_dir, '..')
-sys.path.append(project_root)
-
-import json
+import pandas as pd
 import matplotlib.pyplot as plt
 
-def plot_learning_curve(log_path, plot_path):
-    with open(log_path, "r") as f:
-        data = json.load(f)
-    episodes = [d["episode"] for d in data]
-    rewards = [d["reward"] for d in data]
+def main():
+    csv_file = "training_rewards-bo.csv"
+    df = pd.read_csv(csv_file)
 
-    plt.figure(figsize=(10,6))
-    plt.plot(episodes, rewards, label="Episode Reward")
+    # basic info
+    print("\n===== CSV Info =====")
+    print(df.info())
+
+    # smoothing
+    rolling_window = 100
+
+    # average
+    df["RollingReward"] = df["EpisodeReward"].rolling(rolling_window).mean()
+
+    # plot rewards
+    plt.figure(figsize=(10, 6))
+    plt.plot(df["Episode"], df["EpisodeReward"], label="Episode Reward", color="blue", alpha=0.4)
+    plt.plot(df["Episode"], df["RollingReward"], label=f"Rolling Avg (window={rolling_window})", color="orange")
+
+    plt.title("Smoothed Episode Rewards Over Training")
     plt.xlabel("Episode")
     plt.ylabel("Reward")
-    plt.title("QR-DQN on Breakout - Learning Curve")
     plt.legend()
-    plt.savefig(plot_path)
-    plt.close()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # plt.show()
+    plt.savefig("smoothed_rewards_plot-bo.png")
 
 if __name__ == "__main__":
-    plot_learning_curve("data/logs/training_log.json", "data/results/learning_curve.png")
+    main()
