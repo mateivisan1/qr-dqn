@@ -1,115 +1,99 @@
-#!/usr/bin/env python3
-import sys
-import os
-import json
-import torch
 import gymnasium as gym
 import ale_py
-
-# 1. Make sure Python knows where to find "src/"
-#    We assume this file is inside a folder like "scripts/", so we go one level up.
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-# project_root = os.path.join(current_dir, '..')  # go up one directory
-# src_path = os.path.join(project_root, 'src')
-# if src_path not in sys.path:
-#     sys.path.append(src_path)
-
-# 2. Now we can import from src
-from src.models.qr_dqn_model import QRDQNModel
+import time
+import csv
+from src.env.wrappers import GrayScaleObservation, ResizeObservation
 from src.agents.qr_dqn_agent import QRDQNAgent
-from src.memory.replay_buffer import ReplayBuffer
 
 
-def main():
+def make_env():
     """
-    This main() function performs training only. 
-    You can adapt this file later to do evaluation by modifying the code accordingly.
+    Create Breakout environment with grayscale+resize to (84,84).
     """
-    # A. Create the Breakout environment
     gym.register_envs(ale_py)
     env = gym.make("ALE/Breakout-v5", render_mode=None)
-    print("Environment generated!!!")
+    print("env created!!!")
+    env = GrayScaleObservation(env, keep_dim=True)
+    env = ResizeObservation(env, shape=(84, 84))
+    return env
 
-    # B. Prepare model and agent
-    #    - If you're using raw color frames (210x160x3), set in_channels=3
-    #    - If using a grayscale wrapper, set in_channels=1
-    model = QRDQNModel(num_actions=env.action_space.n)
-    target_model = QRDQNModel(num_actions=env.action_space.n)
-    target_model.load_state_dict(model.state_dict())
-    print("models created!!!")
-
-    agent = QRDQNAgent(
-        model=model,
-        target_model=target_model,
-        num_actions=env.action_space.n,
-        num_quantiles=51,
-        gamma=0.99,
-        lr=1e-4
-    )
-    print("agent created!!!")
-
-    # C. Replay buffer
-    replay_buffer = ReplayBuffer(capacity=100000)
-    print("replay buffer!!!")
-
-    # D. Training hyperparameters
-    episodes = 500
+def main():
+    total_timesteps = 1_000_000
     batch_size = 32
+    learning_rate = 1e-4
+    buffer_size = 200_000
+    gamma = 0.99
+    target_update_interval = 10_000
+
     epsilon_start = 1.0
     epsilon_end = 0.01
-    epsilon_decay = 50000  # steps
-    epsilon = epsilon_start
+    epsilon_decay_fraction = 0.05
 
-    log_data = []
-    global_step = 0
+    env = make_env()
 
-    for ep in range(episodes):
-        state, _ = env.reset()
-        episode_reward = 0
-        done = False
+    agent = QRDQNAgent(
+        env=env,
+        num_quantiles=51,
+        gamma=gamma,
+        lr=learning_rate,
+        batch_size=batch_size,
+        buffer_size=buffer_size,
+        epsilon_start=epsilon_start,
+        epsilon_end=epsilon_end,
+        epsilon_decay=epsilon_decay_fraction,
+        target_update_interval=target_update_interval,
+    )
 
-        while not done:
-            # Epsilon decays linearly over 'epsilon_decay' steps
-            epsilon = max(epsilon_end, epsilon - (epsilon_start - epsilon_end)/epsilon_decay)
+    # CSV logging
+    log_filename = "training_rewards-bo.csv"
+    f = open(log_filename, "w", newline="")
+    writer = csv.writer(f)
+    writer.writerow(["Episode", "Timestep", "EpisodeReward", "Epsilon"])
 
-            # Select action
-            action = agent.select_action(state, epsilon)
-            next_state, reward, terminated, truncated, info = env.step(action)
-            done = terminated or truncated
+    start_time = time.time()
+    state, _ = env.reset()
+    episode_reward = 0.0
+    episode = 0
 
-            # Store transition
-            replay_buffer.add(state, action, reward, next_state, done)
-            state = next_state
-            episode_reward += reward
-            global_step += 1
+    for t in range(1, total_timesteps + 1):
+        # epsilon decay
+        fraction_done = t / (epsilon_decay_fraction * total_timesteps)
+        agent.epsilon = max(
+            agent.epsilon_end,
+            agent.epsilon_start - (agent.epsilon_start - agent.epsilon_end) * fraction_done
+        )
 
-            # Update the agent
-            if len(replay_buffer) >= batch_size:
-                batch = replay_buffer.sample(batch_size)
-                loss = agent.update(batch)
+        # epsilon-greedy action
+        action = agent.choose_action(state)
+        next_state, reward, done, truncated, info = env.step(action)
+        done_flag = done or truncated
 
-            # Periodically update target network
-            if global_step % 1000 == 0:
-                agent.update_target()
+        agent.replay_buffer.push(state, action, reward, next_state, done_flag)
+        state = next_state
+        episode_reward += reward
 
-        log_data.append({"episode": ep, "reward": episode_reward})
-        print(f"Episode {ep}: Reward = {episode_reward:.2f}, Epsilon = {epsilon:.3f}")
+        # Update
+        agent.train_step()
 
-        # Save intermediate checkpoints
-        if (ep + 1) % 50 == 0:
-            os.makedirs("data/checkpoints", exist_ok=True)
-            torch.save(agent.model.state_dict(), f"data/checkpoints/model_ep{ep+1}.pth")
+        # Target net sync
+        if t % agent.target_update_interval == 0:
+            agent.update_target_network()
 
-    # E. Final save
-    os.makedirs("data/checkpoints", exist_ok=True)
-    torch.save(agent.model.state_dict(), "data/checkpoints/model_final.pth")
+        if done_flag:
+            episode += 1
+            print(f"Step={t} | Episode={episode} | Reward={episode_reward:.2f} | Epsilon={agent.epsilon:.3f}")
+            writer.writerow([episode, t, episode_reward, agent.epsilon]) # log
+            f.flush()
 
-    os.makedirs("data/logs", exist_ok=True)
-    with open("data/logs/training_log.json", "w") as f:
-        json.dump(log_data, f)
+            state, _ = env.reset()
+            episode_reward = 0.0
 
-    print("Training finished. Model saved to data/checkpoints/model_final.pth")
+    elapsed = time.time() - start_time
+    print(f"Finished training {total_timesteps} timesteps in {elapsed:.2f} seconds.")
 
+    f.close()
+    env.close()
+    print("DONE!!!")
 
 if __name__ == "__main__":
     main()
