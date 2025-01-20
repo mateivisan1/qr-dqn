@@ -1,22 +1,26 @@
-import random
+from collections import deque
 import numpy as np
+import random
+
 
 class ReplayBuffer:
     def __init__(self, capacity=100000):
         self.capacity = capacity
-        self.buffer = []
-        self.position = 0
+        self.buffer = deque(maxlen=capacity)
 
-    def add(self, state, action, reward, next_state, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.position] = (state, action, reward, next_state, done)
-        self.position = (self.position + 1) % self.capacity
+    def push(self, state, action, reward, next_state, done):
+        self.buffer.append((state, action, reward, next_state, done))
 
     def sample(self, batch_size):
-        batch = random.sample(self.buffer, batch_size)
-        states, actions, rewards, next_states, dones = map(np.array, zip(*batch))
-        return states, actions, rewards, next_states, dones
+        samples = random.sample(self.buffer, batch_size)
+        states, actions, rewards, next_states, dones = zip(*samples)
+        return (
+            np.array(states, dtype=np.float32),
+            np.array(actions, dtype=np.int64),
+            np.array(rewards, dtype=np.float32),
+            np.array(next_states, dtype=np.float32),
+            np.array(dones, dtype=np.float32)
+        )
 
     def __len__(self):
         return len(self.buffer)
