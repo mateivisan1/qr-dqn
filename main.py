@@ -11,16 +11,17 @@ def make_env():
     Create Breakout environment with grayscale+resize to (84,84).
     """
     gym.register_envs(ale_py)
-    env = gym.make("ALE/Breakout-v5", render_mode=None)
+    env = gym.make("ALE/Breakout-v5", render_mode=None)  #change env to ALE/Et-v5 to run on complex
     print("env created!!!")
     env = GrayScaleObservation(env, keep_dim=True)
     env = ResizeObservation(env, shape=(84, 84))
     return env
 
 def main():
-    total_timesteps = 1_000_000
+    # parameters are adjusted depending on env
+    total_timesteps = 1_000_000  # much higher for complex
     batch_size = 32
-    learning_rate = 1e-4
+    learning_rate = 5e-3
     buffer_size = 200_000
     gamma = 0.99
     target_update_interval = 10_000
