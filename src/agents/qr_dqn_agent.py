@@ -24,7 +24,7 @@ class QRDQNAgent:
         device=None
     ):
         self.env = env
-        self.num_actions = env.action_space.n  # e.g., 4 for Breakout
+        self.num_actions = env.action_space.n
         self.num_quantiles = num_quantiles
         self.gamma = gamma
         self.lr = lr
@@ -200,10 +200,8 @@ class QRDQNAgent:
         cond = (x.abs() < k).float()
         return 0.5 * cond * x.pow(2) + (1 - cond) * k * (x.abs() - 0.5 * k)
 
-# =========================
-# Reward-Based Risk Preference
-# =========================
 
+# Reward-Based Risk Preference
 def get_risk_preference_from_rewards(recent_rewards, threshold=0.5):
     if len(recent_rewards) == 0:
         return "neutral"
